@@ -24,6 +24,7 @@ module Mysql2
       1159 => ConnectionError, # ER_NET_READ_INTERRUPTED
       1160 => ConnectionError, # ER_NET_ERROR_ON_WRITE
       1161 => ConnectionError, # ER_NET_WRITE_INTERRUPTED
+      1927 => ConnectionError, # ER_CONNECTION_KILLED
 
       2001 => ConnectionError, # CR_SOCKET_CREATE_ERROR
       2002 => ConnectionError, # CR_CONNECTION_ERROR
@@ -52,7 +53,7 @@ module Mysql2
     def initialize(msg, server_version = nil, error_number = nil, sql_state = nil)
       @server_version = server_version
       @error_number = error_number
-      @sql_state = sql_state ? sql_state.encode(ENCODE_OPTS) : nil
+      @sql_state = sql_state ? sql_state.encode(**ENCODE_OPTS) : nil
 
       super(clean_message(msg))
     end
@@ -91,9 +92,9 @@ module Mysql2
     # Returns a valid UTF-8 string.
     def clean_message(message)
       if @server_version && @server_version > 50500
-        message.encode(ENCODE_OPTS)
+        message.encode(**ENCODE_OPTS)
       else
-        message.encode(Encoding::UTF_8, ENCODE_OPTS)
+        message.encode(Encoding::UTF_8, **ENCODE_OPTS)
       end
     end
   end

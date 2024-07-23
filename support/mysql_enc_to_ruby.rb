@@ -33,6 +33,7 @@ mysql_to_rb = {
   "macroman" => "macRoman",
   "cp852"    => "CP852",
   "latin7"   => "ISO-8859-13",
+  "utf8mb3"  => "UTF-8",
   "utf8mb4"  => "UTF-8",
   "cp1251"   => "Windows-1251",
   "utf16"    => "UTF-16",
@@ -43,6 +44,8 @@ mysql_to_rb = {
   "geostd8"  => "NULL",
   "cp932"    => "Windows-31J",
   "eucjpms"  => "eucJP-ms",
+  "utf16le"  => "UTF-16LE",
+  "gb18030"  => "GB18030",
 }
 
 client     = Mysql2::Client.new(username: user, password: pass, host: host, port: port.to_i)
@@ -52,7 +55,10 @@ encodings_with_nil = Array.new(encodings.size)
 
 collations.each do |collation|
   mysql_col_idx = collation[2].to_i
-  rb_enc = mysql_to_rb[collation[1]]
+  rb_enc = mysql_to_rb.fetch(collation[1]) do |mysql_enc|
+    warn "WARNING: Missing mapping for collation \"#{collation[0]}\" with encoding \"#{mysql_enc}\" and id #{mysql_col_idx}, assuming NULL"
+    "NULL"
+  end
   encodings[mysql_col_idx - 1] = [mysql_col_idx, rb_enc]
 end
 

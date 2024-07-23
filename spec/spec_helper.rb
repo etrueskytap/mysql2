@@ -2,7 +2,19 @@ require 'rspec'
 require 'mysql2'
 require 'timeout'
 require 'yaml'
+require 'fiber'
+
 DatabaseCredentials = YAML.load_file('spec/configuration.yml')
+
+if GC.respond_to?(:verify_compaction_references)
+  # This method was added in Ruby 3.0.0. Calling it this way asks the GC to
+  # move objects around, helping to find object movement bugs.
+  if RUBY_VERSION >= "3.2"
+    GC.verify_compaction_references(expand_heap: true, toward: :empty)
+  else
+    GC.verify_compaction_references(double_heap: true, toward: :empty)
+  end
+end
 
 RSpec.configure do |config|
   config.disable_monkey_patching!
@@ -26,6 +38,7 @@ RSpec.configure do |config|
     @clients ||= []
     @clients << client
     return client unless block_given?
+
     begin
       yield client
     ensure
@@ -36,19 +49,52 @@ RSpec.configure do |config|
 
   def num_classes
     # rubocop:disable Lint/UnifiedInteger
-    0.class == Integer ? [Integer] : [Fixnum, Bignum]
+    0.instance_of?(Integer) ? [Integer] : [Fixnum, Bignum]
     # rubocop:enable Lint/UnifiedInteger
   end
 
-  config.before :each do
-    @client = new_client
+  # Use monotonic time if possible (ruby >= 2.1.0)
+  if defined?(Process::CLOCK_MONOTONIC)
+    def clock_time
+      Process.clock_gettime Process::CLOCK_MONOTONIC
+    end
+  else
+    def clock_time
+      Time.now.to_f
+    end
   end
 
-  config.after :each do
-    @clients.each(&:close)
+  # A directory where SSL certificates pem files exist.
+  def ssl_cert_dir
+    return @ssl_cert_dir if @ssl_cert_dir
+
+    dir = ENV['TEST_RUBY_MYSQL2_SSL_CERT_DIR']
+    @ssl_cert_dir = if dir && !dir.empty?
+      dir
+    else
+      '/etc/mysql'
+    end
+    @ssl_cert_dir
   end
 
-  config.before(:all) do
+  config.before(:suite) do
+    begin
+      new_client
+    rescue Mysql2::Error => e
+      username = DatabaseCredentials['root']['username']
+      database = DatabaseCredentials['root']['database']
+      message = %(
+An error occurred while connecting to the testing database server.
+Make sure that the database server is running.
+Make sure that `mysql -u #{username} [options] #{database}` succeeds by the root user config in spec/configuration.yml.
+Make sure that the testing database '#{database}' exists. If it does not exist, create it.
+)
+      warn message
+      raise e
+    end
+  end
+
+  config.before(:context) do
     new_client do |client|
       client.query %[
         CREATE TABLE IF NOT EXISTS mysql2_test (
@@ -108,5 +154,13 @@ RSpec.configure do |config|
         )
       ]
     end
+  end
+
+  config.before(:example) do
+    @client = new_client
+  end
+
+  config.after(:example) do
+    @clients.each(&:close)
   end
 end

@@ -20,9 +20,12 @@ if RUBY_PLATFORM =~ /mswin|mingw/
   end
 
   if dll_path
-    require 'Win32API'
-    LoadLibrary = Win32API.new('Kernel32', 'LoadLibrary', ['P'], 'I')
-    if LoadLibrary.call(dll_path).zero?
+    require 'fiddle'
+    kernel32 = Fiddle.dlopen 'kernel32'
+    load_library = Fiddle::Function.new(
+      kernel32['LoadLibraryW'], [Fiddle::TYPE_VOIDP], Fiddle::TYPE_INT,
+    )
+    if load_library.call(dll_path.encode('utf-16le')).zero?
       abort "Failed to load libmysql.dll from #{dll_path}"
     end
   end
@@ -62,6 +65,7 @@ module Mysql2
     #
     def self.key_hash_as_symbols(hash)
       return nil unless hash
+
       Hash[hash.map { |k, v| [k.to_sym, v] }]
     end
 
@@ -79,5 +83,6 @@ module Mysql2
     else
       ::Timeout::Error
     end
+    TIMEOUT_ERROR_NEVER = { TIMEOUT_ERROR_CLASS => :never }.freeze
   end
 end
